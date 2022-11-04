@@ -84,21 +84,26 @@ class TrackUtils {
             const track = {
                 track: data.track,
                 title: data.info.title,
-                identifier: data.info.identifier,
+                identifier: data.info.identifier?.includes?.("soundcloud.com") ? (data.info.uri?.split?.("/").reverse()?.[0] || data.info.identifier?.split?.("/").reverse()?.[0] || data.info.identifier) : data.info.identifier,
                 author: data.info.author,
-                duration: data.info.length,
+                duration: (data.info.identifier?.includes?.("/preview") && data.info.identifier?.includes?.("soundcloud")) ? 30000 : data.info.length,
                 isSeekable: data.info.isSeekable,
                 isStream: data.info.isStream,
                 uri: data.info.uri,
-                thumbnail: data.info.uri.includes("youtube")
-                    ? `https://img.youtube.com/vi/${data.info.identifier}/default.jpg`
-                    : null,
-                displayThumbnail(size = "default") {
+                isPreview: (data.info.identifier?.includes?.("/preview") && data.info.identifier?.includes?.("soundcloud")) || (data.info.length === 30000 && data.info.identifier?.includes?.("soundcloud")),
+                thumbnail: (data?.info?.uri?.includes?.("youtube.") || data?.info?.uri?.includes?.("youtu.be"))
+                    ? `https://img.youtube.com/vi/${data.info.identifier}/mqdefault.jpg`
+                    : (data.info?.md5_image && data.info?.uri?.includes?.("deezer"))
+                    ? `https://cdns-images.dzcdn.net/images/cover/${data.info.md5_image}/500x500.jpg`
+                    :  data.info?.thumbnail || data.info?.image,
+                displayThumbnail(size = "mqdefault") {
                     var _a;
-                    const finalSize = (_a = SIZES.find((s) => s === size)) !== null && _a !== void 0 ? _a : "default";
-                    return this.uri.includes("youtube")
-                        ? `https://img.youtube.com/vi/${data.info.identifier}/${finalSize}.jpg`
-                        : null;
+                    const finalSize = (_a = SIZES.find((s) => s === size)) !== null && _a !== void 0 ? _a : "mqdefault";
+                    return (data?.info?.uri?.includes?.("youtube.") || data?.info?.uri?.includes?.("youtu.be"))
+                    ? `https://img.youtube.com/vi/${data.info.identifier}/${finalSize}.jpg`
+                    : (data.info?.md5_image && data.info?.uri?.includes?.("deezer"))
+                    ? `https://cdns-images.dzcdn.net/images/cover/${data.info.md5_image}/500x500.jpg`
+                    :  data.info?.thumbnail || data.info?.image
                 },
                 requester,
             };
@@ -126,8 +131,7 @@ class TrackUtils {
      * @param requester
      */
     static buildUnresolved(query, requester) {
-        if (typeof query === "undefined")
-            throw new RangeError('Argument "query" must be present.');
+        if (typeof query === "undefined") throw new RangeError('Argument "query" must be present.');
         let unresolvedTrack = {
             requester,
             resolve() {
@@ -138,28 +142,38 @@ class TrackUtils {
                 });
             }
         };
-        if (typeof query === "string")
-            unresolvedTrack.title = query;
-        else
-            unresolvedTrack = Object.assign(Object.assign({}, unresolvedTrack), query);
+        if (typeof query === "string") unresolvedTrack.title = query;
+        else unresolvedTrack = Object.assign(Object.assign({}, unresolvedTrack), query);
         Object.defineProperty(unresolvedTrack, UNRESOLVED_TRACK_SYMBOL, {
             configurable: true,
             value: true
         });
         return unresolvedTrack;
     }
-    static getClosestTrack(unresolvedTrack) {
+    static getClosestTrack(unresolvedTrack, customNode) {
         var _a;
         return __awaiter(this, void 0, void 0, function* () {
-            if (!TrackUtils.manager)
-                throw new RangeError("Manager has not been initiated.");
-            if (!TrackUtils.isUnresolvedTrack(unresolvedTrack))
-                throw new RangeError("Provided track is not a UnresolvedTrack.");
+            if (!TrackUtils.manager) throw new RangeError("Manager has not been initiated.");
+            if (!TrackUtils.isUnresolvedTrack(unresolvedTrack)) throw new RangeError("Provided track is not a UnresolvedTrack.");
             const query = [unresolvedTrack.author, unresolvedTrack.title].filter(str => !!str).join(" - ");
-            const res = yield TrackUtils.manager.search(query, unresolvedTrack.requester);
-            if (res.loadType !== "SEARCH_RESULT")
+            const isvalidUri = (str) => {
+                const valids = ["www.youtu", "music.youtu", "soundcloud.com"];
+                if(TrackUtils.manager.options.validUnresolvedUris && TrackUtils.manager.options.validUnresolvedUris.length) {
+                    valids.push(...TrackUtils.manager.options.validUnresolvedUris);
+                }
+                // auto remove plugins which make it to unresolved, so that it can search on youtube etc.
+                if(TrackUtils.manager.options.plugins && TrackUtils.manager.options.plugins.length) {
+                    const pluginNames = TrackUtils.manager.options.plugins.map(c => c?.constructor?.name?.toLowerCase?.());
+                    for(const valid of valids) if(pluginNames?.some?.(v => valid?.toLowerCase?.().includes?.(v))) valids.splice(valids.indexOf(valid), 1);
+                }
+                if(!str) return false;
+                if(valids.some(x => str.includes(x.toLowerCase()))) return true;
+                return false
+            }
+            const res = isvalidUri(unresolvedTrack.uri) ? yield TrackUtils.manager.search(unresolvedTrack.uri, unresolvedTrack.requester, customNode) : yield TrackUtils.manager.search(query, unresolvedTrack.requester, customNode);
+            if (res.loadType !== "SEARCH_RESULT" && res.loadType !== "TRACK_LOADED" && res.loadType !== "PLAYLIST_LOADED")
                 throw (_a = res.exception) !== null && _a !== void 0 ? _a : {
-                    message: "No tracks found.",
+                    message: "No tracks found.......",
                     severity: "COMMON",
                 };
             if (unresolvedTrack.author) {
@@ -168,19 +182,58 @@ class TrackUtils {
                     return (channelNames.some(name => new RegExp(`^${escapeRegExp(name)}$`, "i").test(track.author)) ||
                         new RegExp(`^${escapeRegExp(unresolvedTrack.title)}$`, "i").test(track.title));
                 });
-                if (originalAudio)
+                if (originalAudio) {
+                    originalAudio.uri = unresolvedTrack.uri;
+                    if(TrackUtils.manager.options.useUnresolvedData) {
+                        if(unresolvedTrack.thumbnail?.length) originalAudio.thumbnail = unresolvedTrack.thumbnail;
+                        if(unresolvedTrack.title?.length) originalAudio.title = unresolvedTrack.title;
+                        if(unresolvedTrack.author?.length) originalAudio.author = unresolvedTrack.author;
+                        for(const key of Object.keys(unresolvedTrack)) if(!originalAudio[key]) originalAudio[key] = unresolvedTrack[key];
+                    } else {
+                        if((originalAudio.title == 'Unknown title' || originalAudio.title == "Unspecified description") && originalAudio.title != unresolvedTrack.title) originalAudio.title = unresolvedTrack.title;
+                        if(originalAudio.author != unresolvedTrack.author) originalAudio.author = unresolvedTrack.author;
+                        if(originalAudio.thumbnail != unresolvedTrack.thumbnail) originalAudio.thumbnail = unresolvedTrack.thumbnail;    
+                    }
                     return originalAudio;
+                }
             }
             if (unresolvedTrack.duration) {
-                const sameDuration = res.tracks.find(track => (track.duration >= (unresolvedTrack.duration - 1500)) &&
-                    (track.duration <= (unresolvedTrack.duration + 1500)));
-                if (sameDuration)
+                const sameDuration = res.tracks.find(track => (track.duration >= (unresolvedTrack.duration - 1500)) && (track.duration <= (unresolvedTrack.duration + 1500)));
+                if (sameDuration) {
+                    sameDuration.uri = unresolvedTrack.uri;
+                    if(TrackUtils.manager.options.useUnresolvedData) {
+                        if(unresolvedTrack.thumbnail?.length) sameDuration.thumbnail = unresolvedTrack.thumbnail;
+                        if(unresolvedTrack.title?.length) sameDuration.title = unresolvedTrack.title;
+                        if(unresolvedTrack.author?.length) sameDuration.author = unresolvedTrack.author;
+                        if(unresolvedTrack.authorUri?.length) sameDuration.authorUri = unresolvedTrack.authorUri;
+                        if(unresolvedTrack.authorImage?.length) sameDuration.authorImage = unresolvedTrack.authorImage;
+                        for(const key of Object.keys(unresolvedTrack)) if(!sameDuration[key]) sameDuration[key] = unresolvedTrack[key];
+                    } else {
+                        if((sameDuration.title == 'Unknown title' || sameDuration.title == "Unspecified description") && sameDuration.title != unresolvedTrack.title) sameDuration.title = unresolvedTrack.title;
+                        if(sameDuration.author != unresolvedTrack.author) sameDuration.author = unresolvedTrack.author;
+                        if(sameDuration.thumbnail != unresolvedTrack.thumbnail) sameDuration.thumbnail = unresolvedTrack.thumbnail;
+                    }
                     return sameDuration;
+                }
+            }
+            res.tracks[0].uri = unresolvedTrack.uri;
+            if(TrackUtils.manager.options.useUnresolvedData) {
+                if(unresolvedTrack.thumbnail?.length) res.tracks[0].thumbnail = unresolvedTrack.thumbnail;
+                if(unresolvedTrack.title?.length) res.tracks[0].title = unresolvedTrack.title;
+                if(unresolvedTrack.author?.length) res.tracks[0].author = unresolvedTrack.author;
+                if(unresolvedTrack.authorUri?.length) res.tracks[0].authorUri = unresolvedTrack.authorUri;
+                if(unresolvedTrack.authorImage?.length) res.tracks[0].authorImage = unresolvedTrack.authorImage;
+                for(const key of Object.keys(unresolvedTrack)) if(!res.tracks[0][key]) res.tracks[0][key] = unresolvedTrack[key];
+            } else {
+                if((res.tracks[0].title == 'Unknown title' || res.tracks[0].title == "Unspecified description") && unresolvedTrack.title != res.tracks[0].title) res.tracks[0].title = unresolvedTrack.title;
+                if(unresolvedTrack.author != res.tracks[0].author) res.tracks[0].author = unresolvedTrack.author;
+                if(unresolvedTrack.thumbnail != res.tracks[0].thumbnail) res.tracks[0].thumbnail = unresolvedTrack.thumbnail;
             }
             return res.tracks[0];
         });
     }
 }
+
 exports.TrackUtils = TrackUtils;
 TrackUtils.trackPartial = null;
 /** Gets or extends structures to extend the built in, or already extended, classes to add more functionality. */
@@ -191,8 +244,7 @@ class Structure {
      * @param extender
      */
     static extend(name, extender) {
-        if (!structures[name])
-            throw new TypeError(`"${name} is not a valid structure`);
+        if (!structures[name]) throw new TypeError(`"${name} is not a valid structure`);
         const extended = extender(structures[name]);
         structures[name] = extended;
         return extended;
@@ -203,8 +255,7 @@ class Structure {
      */
     static get(name) {
         const structure = structures[name];
-        if (!structure)
-            throw new TypeError('"structure" must be provided.');
+        if (!structure) throw new TypeError('"structure" must be provided.');
         return structure;
     }
 }
