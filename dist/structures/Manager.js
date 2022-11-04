@@ -325,7 +325,9 @@ class Manager extends Events.EventEmitter {
             if(this.players.get(options.guild).manager.options.clientId !== this.options.clientId) {
                 return new (Utils.Structure.get("Player"))(options);
             }
+            return this.players.get(options.guild);
         }
+        return new (Utils.Structure.get("Player"))(options);
     }
     /**
      * Returns a player or undefined if it does not exist.
