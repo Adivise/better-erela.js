@@ -1,5 +1,4 @@
-- Original: https://github.com/MenuDocs/erela.js
-
-- Pull Request: https://github.com/MenuDocs/erela.js/pull/179
-
-- Project Example: https://github.com/Adivise/NanoSpace/tree/multi-bot
+- Original: [MenuDocs](https://github.com/MenuDocs/erela.js)
+- Fork: [Tomato6966](https://github.com/Tomato6966/erela.js)
+- Pull Request: [Mixed players from different instances](https://github.com/MenuDocs/erela.js/pull/179)
+- Project Example: [NanoSpace](https://github.com/Adivise/NanoSpace/tree/multi-bot)
